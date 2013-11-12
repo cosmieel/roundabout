@@ -99,7 +99,8 @@
 		dragFactor: 4,
 		triggerFocusEvents: true,
 		triggerBlurEvents: true,
-		responsive: false
+		responsive: false,
+		useCssAnimation: false
 	};
 
 	internalData = {
@@ -122,12 +123,21 @@
 		// starts up roundabout
 		init: function(options, callback, relayout) {
 			var settings,
+				supportCSSAnimation = false,
 			    now = (new Date()).getTime();
 
 			options   = (typeof options === "object") ? options : {};
 			callback  = ($.isFunction(callback)) ? callback : function() {};
 			callback  = ($.isFunction(options)) ? options : callback;
 			settings  = $.extend({}, defaults, options, internalData);
+
+			if (settings.useCssAnimation === true) {
+				supportCSSAnimation = true;
+			} else if (settings.useCssAnimation === 'auto') {
+				if (Modernizr.csstransforms && Modernizr.csstransitions) {
+					supportCSSAnimation = true;
+				}
+			}
 
 			return this
 				.each(function() {
@@ -155,7 +165,8 @@
 									bearing: startBearing,
 									oppositeOfFocusBearing: methods.normalize.apply(null, [settings.focusBearing - 180]),
 									dragBearing: startBearing,
-									period: period
+									period: period,
+									supportCSSAnimation: supportCSSAnimation
 								}
 							)
 						);
@@ -319,6 +330,16 @@
 				});
 		},
 
+		createCSSAnimation: function (data) {
+			var duration = data.duration / 1000,
+				easing = data.easing;
+
+			if(data.easing === 'swing') {
+				easing = 'cubic-bezier(.02,.01,.47,1)';
+			} 
+
+			return "all " + duration + "s " + easing;
+		},
 
 		// initChildren
 		// applys settings to child elements, starts roundabout
@@ -342,7 +363,18 @@
 				// apply classes and css first
 				$(this)
 					.addClass("roundabout-moveable-item")
-					.css("position", "absolute");
+					.css({
+						position: "absolute"
+					});
+
+				if (data.supportCSSAnimation) {
+					var animation = methods.createCSSAnimation(data);
+
+					$(this)
+						.css({
+							transition: animation
+						});
+				}
 
 				// now measure
 				$(this)
@@ -430,6 +462,7 @@
 						diff: data.maxScale - data.minScale
 					};
 
+
 					// update child positions
 					self.children(data.childSelector)
 						.each(function(i) {
@@ -463,7 +496,6 @@
 				});
 		},
 
-
 		// updateChild
 		// repositions a child element into its new position
 		updateChild: function(childElement, info, childPos, callback) {
@@ -488,17 +520,28 @@
 			factors.width = (factors.adjustedScale * data.startWidth).toFixed(4);
 			factors.height = (factors.adjustedScale * data.startHeight).toFixed(4);
 
-			// update item
-			child
-				.css({
-					left: ((factors.x * info.midStage.width + info.nudge.width) - factors.width / 2.0).toFixed(0) + "px",
-					top: ((factors.y * info.midStage.height + info.nudge.height) - factors.height / 2.0).toFixed(0) + "px",
-					width: factors.width + "px",
-					height: factors.height + "px",
-					opacity: (info.opacity.min + (info.opacity.diff * factors.scale)).toFixed(2),
-					zIndex: Math.round(info.zValues.min + (info.zValues.diff * factors.z)),
-					fontSize: (factors.adjustedScale * data.startFontSize).toFixed(1) + "px"
-				});
+			if (this.data("roundabout").supportCSSAnimation) {
+				child
+					.css({
+						transform: 'scale(' + factors.adjustedScale + ',' + factors.adjustedScale + ')',
+						left: ((factors.x * info.midStage.width + info.nudge.width) - factors.width / 2.0/factors.adjustedScale).toFixed(0) + "px",
+						top: ((factors.y * info.midStage.height + info.nudge.height) - factors.height / 2.0/factors.adjustedScale).toFixed(0) + "px",
+						opacity: (info.opacity.min + (info.opacity.diff * factors.scale)).toFixed(2),
+						zIndex: Math.round(info.zValues.min + (info.zValues.diff * factors.z))
+					});
+			} else {
+				child
+					.css({
+						left: ((factors.x * info.midStage.width + info.nudge.width) - factors.width / 2.0).toFixed(0) + "px",
+						top: ((factors.y * info.midStage.height + info.nudge.height) - factors.height / 2.0).toFixed(0) + "px",
+						width: factors.width + "px",
+						height: factors.height + "px",
+						opacity: (info.opacity.min + (info.opacity.diff * factors.scale)).toFixed(2),
+						zIndex: Math.round(info.zValues.min + (info.zValues.diff * factors.z)),
+						fontSize: (factors.adjustedScale * data.startFontSize).toFixed(1) + "px"
+					});
+			}
+
 			data.currentScale = factors.adjustedScale;
 
 			// for debugging purposes
@@ -526,7 +569,6 @@
 
 			return methods.isInFocus.apply(self, [data.degrees]);
 		},
-
 
 
 		// manipulation
@@ -624,7 +666,6 @@
 		},
 
 
-
 		// animation
 		// -----------------------------------------------------------------------
 
@@ -655,6 +696,7 @@
 					    thisDuration = (!duration) ? data.duration : duration,
 					    thisEasingType = (easing) ? easing : data.easing || "swing";
 
+
 					// is this your first time?
 					if (!passedData) {
 						passedData = {
@@ -674,7 +716,7 @@
 					}
 
 					// we need to animate more
-					if (timer < thisDuration) {
+					if ((timer < thisDuration)  && !data.supportCSSAnimation) {
 						if (!data.animating) {
 							self.trigger("animationStart");
 						}
