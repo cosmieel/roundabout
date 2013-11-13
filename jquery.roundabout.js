@@ -111,7 +111,8 @@
 		childInFocus: -1,
 		touchMoveStartPosition: null,
 		stopAnimation: false,
-		lastAnimationStep: false
+		lastAnimationStep: false,
+		skipNextAnimation: 0
 	};
 
 	methods = {
@@ -124,7 +125,7 @@
 		init: function(options, callback, relayout) {
 			var settings,
 				supportCSSAnimation = false,
-			    now = (new Date()).getTime();
+				now = (new Date()).getTime();
 
 			options   = (typeof options === "object") ? options : {};
 			callback  = ($.isFunction(callback)) ? callback : function() {};
@@ -133,9 +134,13 @@
 
 			if (settings.useCssAnimation === true) {
 				supportCSSAnimation = true;
-			} else if (settings.useCssAnimation === 'auto') {
-				if (Modernizr.csstransforms && Modernizr.csstransitions) {
-					supportCSSAnimation = true;
+			} else if (settings.useCssAnimation === "auto") {
+				try {
+					if (Modernizr.csstransforms && Modernizr.csstransitions) {
+						supportCSSAnimation = true;
+					}
+				} catch(e) {
+  					console.error("You should include Modernizr library to use option 'useCssAnimation: \"auto\"'.")
 				}
 			}
 
@@ -330,12 +335,12 @@
 				});
 		},
 
-		createCSSAnimation: function (data) {
+		createCSSAnimation: function(data) {
 			var duration = data.duration / 1000,
 				easing = data.easing;
 
-			if(data.easing === 'swing') {
-				easing = 'cubic-bezier(.02,.01,.47,1)';
+			if (data.easing === "swing") {
+				easing = "cubic-bezier(.02,.01,.47,1)";
 			} 
 
 			return "all " + duration + "s " + easing;
@@ -363,17 +368,13 @@
 				// apply classes and css first
 				$(this)
 					.addClass("roundabout-moveable-item")
-					.css({
-						position: "absolute"
-					});
+					.css("position", "absolute");
 
 				if (data.supportCSSAnimation) {
 					var animation = methods.createCSSAnimation(data);
 
 					$(this)
-						.css({
-							transition: animation
-						});
+						.css("transition", animation);
 				}
 
 				// now measure
@@ -523,7 +524,7 @@
 			if (this.data("roundabout").supportCSSAnimation) {
 				child
 					.css({
-						transform: 'scale(' + factors.adjustedScale + ',' + factors.adjustedScale + ')',
+						transform: "scale(" + factors.adjustedScale + "," + factors.adjustedScale + ")",
 						left: ((factors.x * info.midStage.width + info.nudge.width) - factors.width / 2.0/factors.adjustedScale).toFixed(0) + "px",
 						top: ((factors.y * info.midStage.height + info.nudge.height) - factors.height / 2.0/factors.adjustedScale).toFixed(0) + "px",
 						opacity: (info.opacity.min + (info.opacity.diff * factors.scale)).toFixed(2),
@@ -548,13 +549,20 @@
 			if (self.data("roundabout").debug) {
 				out.push("<div style=\"font-weight: normal; font-size: 10px; padding: 2px; width: " + child.css("width") + "; background-color: #ffc;\">");
 				out.push("<strong style=\"font-size: 12px; white-space: nowrap;\">Child " + childPos + "</strong><br />");
+
+				if (this.data("roundabout").supportCSSAnimation) {
+					out.push("<strong>Use CSS3:</strong> false <br />");
+					out.push("<strong>width:</strong> " + child.css("width") + "<br />");
+					out.push("<strong>height:</strong> " + child.css("height") + "<br />");
+					out.push("<strong>font-size:</strong> " + child.css("font-size") + "<br />");
+				} else {
+					out.push("<strong>Use CSS3:</strong> true <br />");
+				}
+
 				out.push("<strong>left:</strong> " + child.css("left") + "<br />");
 				out.push("<strong>top:</strong> " + child.css("top") + "<br />");
-				out.push("<strong>width:</strong> " + child.css("width") + "<br />");
 				out.push("<strong>opacity:</strong> " + child.css("opacity") + "<br />");
-				out.push("<strong>height:</strong> " + child.css("height") + "<br />");
 				out.push("<strong>z-index:</strong> " + child.css("z-index") + "<br />");
-				out.push("<strong>font-size:</strong> " + child.css("font-size") + "<br />");
 				out.push("<strong>scale:</strong> " + child.data("roundabout").currentScale);
 				out.push("</div>");
 
@@ -709,6 +717,13 @@
 					// update the timer
 					timer = now - passedData.timerStart;
 
+					if (data.skipNextAnimation == 2 && data.supportCSSAnimation) {
+						data.skipNextAnimation = 0;
+						return;
+					} else if (data.skipNextAnimation == 1 && data.supportCSSAnimation) {
+						data.skipNextAnimation++;
+					}
+
 					if (data.stopAnimation) {
 						methods.allowAnimation.apply(self);
 						data.animating = false;
@@ -716,7 +731,7 @@
 					}
 
 					// we need to animate more
-					if ((timer < thisDuration)  && !data.supportCSSAnimation) {
+					if ((timer < thisDuration) && !data.supportCSSAnimation) {
 						if (!data.animating) {
 							self.trigger("animationStart");
 						}
@@ -957,7 +972,14 @@
 		stopAnimation: function() {
 			return this
 				.each(function() {
-					$(this).data("roundabout").stopAnimation = true;
+					var self = $(this),
+						data = self.parent().data('roundabout');
+
+					if (data.supportCSSAnimation) {
+						data.skipNextAnimation = 1;
+					}
+
+					self.data('roundabout').stopAnimation = true;
 				});
 		},
 
