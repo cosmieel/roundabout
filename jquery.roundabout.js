@@ -41,7 +41,13 @@
 (function($) {
 	"use strict";
 	
-	var defaults, internalData, methods;
+	var defaults, 
+		internalData, 
+		methods,
+		NOT_SKIP_ANIMATION = 0,
+		SKIP_NEXT_ANIMATION = 1,
+		SKIP_CURRENT_ANIMATION = 2;
+
 
 	// add default shape
 	$.extend({
@@ -717,11 +723,11 @@
 					// update the timer
 					timer = now - passedData.timerStart;
 
-					if (data.skipNextAnimation == 2 && data.supportCSSAnimation) {
-						data.skipNextAnimation = 0;
+					if (data.skipNextAnimation == SKIP_CURRENT_ANIMATION && data.supportCSSAnimation) {
+						data.skipNextAnimation = NOT_SKIP_ANIMATION;
 						return;
-					} else if (data.skipNextAnimation == 1 && data.supportCSSAnimation) {
-						data.skipNextAnimation++;
+					} else if (data.skipNextAnimation == SKIP_NEXT_ANIMATION && data.supportCSSAnimation) {
+						data.skipNextAnimation = data.skipNextAnimation + 1;
 					}
 
 					if (data.stopAnimation) {
@@ -976,7 +982,7 @@
 						data = self.parent().data('roundabout');
 
 					if (data.supportCSSAnimation) {
-						data.skipNextAnimation = 1;
+						data.skipNextAnimation = SKIP_NEXT_ANIMATION;
 					}
 
 					self.data('roundabout').stopAnimation = true;
