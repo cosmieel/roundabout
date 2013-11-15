@@ -41,12 +41,15 @@
 (function($) {
 	"use strict";
 	
-	var defaults, 
-		internalData, 
+	var defaults,
+		internalData,
 		methods,
-		NOT_SKIP_ANIMATION = 0,
-		SKIP_NEXT_ANIMATION = 1,
-		SKIP_CURRENT_ANIMATION = 2;
+		DONT_SKIP = 0,
+		SKIP_NEXT = 1,
+		SKIP_CURRENT = 2,
+		KEYFRAMES_STATES = 25,
+		PERCENTS = 100,
+		prefix = '';
 
 
 	// add default shape
@@ -118,7 +121,9 @@
 		touchMoveStartPosition: null,
 		stopAnimation: false,
 		lastAnimationStep: false,
-		skipNextAnimation: 0
+		skipNextAnimation: 0,
+		childrenMaxCount: 0,
+		showPrev: false,
 	};
 
 	methods = {
@@ -141,14 +146,21 @@
 			if (settings.useCssAnimation === true) {
 				supportCSSAnimation = true;
 			} else if (settings.useCssAnimation === "auto") {
-				try {
-					if (Modernizr.csstransforms && Modernizr.csstransitions) {
-						supportCSSAnimation = true;
-					}
-				} catch(e) {
-  					console.error("You should include Modernizr library to use option 'useCssAnimation: \"auto\"'.")
+				if (!('Modernizr' in window)) {
+					console.error("You must include Modernizr library to use 'useCssAnimation: \"auto\"' option. Resetting to \"false\".");
+				} else if (Modernizr.csstransforms && Modernizr.csstransitions && Modernizr.cssanimations) {
+					supportCSSAnimation = true;
 				}
 			}
+
+			if($.browser.webkit) {
+				prefix = "-webkit-";
+			} else if ($.browser.mozilla) {
+				prefix = "-moz-";
+			} else if ($.browser.opera) {
+				prefix = '-o-'
+			}
+	
 
 			return this
 				.each(function() {
@@ -177,7 +189,8 @@
 									oppositeOfFocusBearing: methods.normalize.apply(null, [settings.focusBearing - 180]),
 									dragBearing: startBearing,
 									period: period,
-									supportCSSAnimation: supportCSSAnimation
+									supportCSSAnimation: supportCSSAnimation,
+									showPrev: false
 								}
 							)
 						);
@@ -206,6 +219,12 @@
 								$(this)
 									.bind("click.roundabout", function() {
 										var degrees = methods.getPlacement.apply(self, [i]);
+
+										if (parseInt($(this).css('left')) < 0 && self.data("roundabout").supportCSSAnimation) {
+											self.children(settings.childSelector).each(function() {
+												$(this).data("roundabout").showPrev = true;
+											});
+										}
 
 										if (!methods.isInFocus.apply(self, [degrees])) {
 											methods.stopAnimation.apply($(this));
@@ -341,16 +360,6 @@
 				});
 		},
 
-		createCSSAnimation: function(data) {
-			var duration = data.duration / 1000,
-				easing = data.easing;
-
-			if (data.easing === "swing") {
-				easing = "cubic-bezier(.02,.01,.47,1)";
-			} 
-
-			return "all " + duration + "s " + easing;
-		},
 
 		// initChildren
 		// applys settings to child elements, starts roundabout
@@ -376,13 +385,6 @@
 					.addClass("roundabout-moveable-item")
 					.css("position", "absolute");
 
-				if (data.supportCSSAnimation) {
-					var animation = methods.createCSSAnimation(data);
-
-					$(this)
-						.css("transition", animation);
-				}
-
 				// now measure
 				$(this)
 					.data(
@@ -395,7 +397,9 @@
 							backDegrees: methods.normalize.apply(null, [degrees - 180]),
 							childNumber: i,
 							currentScale: 1,
-							parent: self
+							parent: self,
+							isFirstReposition: true,
+							isFirstAnimation: true
 						}
 					);
 			});
@@ -409,11 +413,214 @@
 				}, data.autoplayInitialDelay);
 			}
 
+			if (data.supportCSSAnimation) {
+				methods.createStyles.apply(self);
+			}
+
 			self.trigger('ready');
 			callback.apply(self);
 			return self;
 		},
 
+		generateKeyframesInfo: function() {
+			var info = methods.getInfo.apply(this),
+				factors,
+			    childs = this.children(),
+			    childCount = childs.length,
+			    data = childs.data("roundabout"),
+			    rad = 0,
+			    iterations = childCount * (KEYFRAMES_STATES + 1),
+			    deltaRad = 2 * Math.PI / iterations,
+			    keyframes = [],
+			    result,
+			    transform = prefix + "transform";
+
+			for (var i = 0; i < iterations; i++) {
+				factors = info.shape(rad, info.focusBearingRadian, info.tilt);
+
+				factors.scale = (factors.scale > 1) ? 1 : factors.scale;
+				factors.adjustedScale = (info.scale.min + (info.scale.diff * factors.scale)).toFixed(4);
+				factors.width = (factors.adjustedScale * data.startWidth).toFixed(4);
+				factors.height = (factors.adjustedScale * data.startHeight).toFixed(4);
+
+				result = {
+					"left": ((factors.x * info.midStage.width + info.nudge.width) - factors.width / 2.0/factors.adjustedScale).toFixed(0) + "px",
+					"top": ((factors.y * info.midStage.height + info.nudge.height) - factors.height / 2.0 /factors.adjustedScale).toFixed(0) + "px",
+					"opacity": (info.opacity.min + (info.opacity.diff * factors.scale)).toFixed(2),
+					"z-index": Math.round(info.zValues.min + (info.zValues.diff * factors.z)),
+					"position": "absolute"
+				};
+
+				result[transform] = "scale(" + factors.adjustedScale + "," + factors.adjustedScale + ")";
+				keyframes.push(result);
+
+				rad = rad + deltaRad;
+			}
+
+			$(this).data("roundabout").childrenMaxCount = childCount -1;
+
+			return keyframes;
+
+		},
+
+		createStyles: function() {
+			var keyframes = methods.generateKeyframesInfo.apply(this),
+				styles = "",
+				currentPersents,
+				iterations = PERCENTS / (KEYFRAMES_STATES + 1),
+				j = 0,
+				children = $(this).children(),
+				duration = $(this).data("roundabout").duration / 1000,
+				prevClassNumber = 1,
+				childrenMaxCount =$(this).data("roundabout").childrenMaxCount,
+				nextClassNumber = childrenMaxCount,
+				lastAnimationState = 0,
+				prevAnimationState;
+
+			for (var i = 0; i <= childrenMaxCount; i++) {
+				currentPersents = 0;
+				$(children[i]).css(keyframes[lastAnimationState]);
+
+				styles = styles + "@" + prefix + "keyframes roundaboutAnimation" + i + "{";
+
+				for (j; j < (i + 1) * (KEYFRAMES_STATES + 2); j++) {
+					styles = styles + currentPersents.toFixed(0) + "%" + methods.objToString(keyframes[lastAnimationState]);
+					currentPersents = currentPersents + iterations;
+					lastAnimationState++;
+					if (lastAnimationState == keyframes.length) {
+						lastAnimationState = 0;
+					}
+				};
+
+				lastAnimationState--;
+				styles = styles + "}";
+
+				styles = styles + ".position" + prevClassNumber + "{" + prefix + "animation:roundaboutAnimation" + i +
+						 " " + duration + "s;" + prefix + "animation-timing-function:linear;" +
+						 "width:480px;" + prefix + "transform:"+keyframes[lastAnimationState][prefix + "transform"]+
+						 ";height:320px;top:"+keyframes[lastAnimationState].top+
+						 ";left:"+keyframes[lastAnimationState].left+
+						 ";position: absolute;opacity:"+keyframes[lastAnimationState].opacity+
+						 ";z-index:"+keyframes[lastAnimationState]["z-index"]+";}";
+
+				if (prevClassNumber == childrenMaxCount) {
+					prevClassNumber = 0;
+				} else {
+					prevClassNumber++;
+				}
+
+			}
+
+			lastAnimationState = 0;
+			j = (KEYFRAMES_STATES + 2);
+			var animationNumber = childrenMaxCount;
+
+			for (var i = 0; i <= childrenMaxCount; i++) {
+				currentPersents = 0;
+
+				if (animationNumber > childrenMaxCount) {
+					animationNumber = 0;
+				}
+
+				styles = styles + "@" + prefix + "keyframes roundaboutAnimationNext" + animationNumber + "{";
+
+				animationNumber++;
+
+				for (j = KEYFRAMES_STATES + 2; j > 0; j--) {
+					styles = styles + currentPersents.toFixed(0) + "%" + methods.objToString(keyframes[lastAnimationState]);
+					currentPersents = currentPersents + iterations;
+
+					if (lastAnimationState === 0) {
+						lastAnimationState = keyframes.length - 1;
+					} else {
+						lastAnimationState--;
+					}
+				};
+
+				styles = styles + "}";
+
+				nextClassNumber = childrenMaxCount - i - 1;
+
+				if (nextClassNumber < 0) {
+					nextClassNumber = childrenMaxCount;
+				}
+
+				var current = lastAnimationState - KEYFRAMES_STATES;
+
+				if (animationNumber > childrenMaxCount) {
+					animationNumber = 0
+				}
+
+				prevAnimationState = lastAnimationState - KEYFRAMES_STATES;
+
+				styles = styles + ".positionNext" + nextClassNumber + "{" + prefix + 
+						 "animation:roundaboutAnimationNext" + animationNumber + " "+duration+"s;" + 
+						 prefix + "animation-timing-function:linear;width:480px;" + 
+						 prefix + "transform:"+keyframes[prevAnimationState][prefix + "transform"]+
+						 ";height:320px;top:"+keyframes[prevAnimationState].top+";left:"+keyframes[prevAnimationState].left+
+						 ";position: absolute;opacity:"+keyframes[prevAnimationState].opacity+
+						 ";z-index:"+keyframes[prevAnimationState]["z-index"]+";}";
+
+				 lastAnimationState++;
+				
+			}
+
+			$('head').append($('<style>', {
+				text: styles
+			}));
+
+		},
+
+
+		getInfo: function() {
+			var self = $(this),
+			    data = self.data("roundabout"),
+			    inFocus = -1,
+			    elemInfo = {
+					bearing: data.bearing,
+					tilt: data.tilt,
+					stage: {
+						width: Math.floor($(this).width() * 0.9),
+						height: Math.floor($(this).height() * 0.9)
+					},
+					animating: data.animating,
+					inFocus: data.childInFocus,
+					focusBearingRadian: methods.degToRad.apply(null, [data.focusBearing]),
+					shape: $.roundaboutShapes[data.shape] || $.roundaboutShapes[$.roundaboutShapes.def]
+			    };
+
+			// calculations
+			elemInfo.midStage = {
+				width: elemInfo.stage.width / 2,
+				height: elemInfo.stage.height / 2
+			};
+
+			elemInfo.nudge = {
+				width: elemInfo.midStage.width + (elemInfo.stage.width * 0.05),
+				height: elemInfo.midStage.height + (elemInfo.stage.height * 0.05)
+			};
+
+			elemInfo.zValues = {
+				min: data.minZ,
+				max: data.maxZ,
+				diff: data.maxZ - data.minZ
+			};
+
+			elemInfo.opacity = {
+				min: data.minOpacity,
+				max: data.maxOpacity,
+				diff: data.maxOpacity - data.minOpacity
+			};
+
+			elemInfo.scale = {
+				min: data.minScale,
+				max: data.maxScale,
+				diff: data.maxScale - data.minScale
+			};
+
+			return elemInfo;
+
+		},
 
 
 		// positioning
@@ -427,48 +634,7 @@
 					var self = $(this),
 					    data = self.data("roundabout"),
 					    inFocus = -1,
-					    info = {
-							bearing: data.bearing,
-							tilt: data.tilt,
-							stage: {
-								width: Math.floor($(this).width() * 0.9),
-								height: Math.floor($(this).height() * 0.9)
-							},
-							animating: data.animating,
-							inFocus: data.childInFocus,
-							focusBearingRadian: methods.degToRad.apply(null, [data.focusBearing]),
-							shape: $.roundaboutShapes[data.shape] || $.roundaboutShapes[$.roundaboutShapes.def]
-					    };
-
-					// calculations
-					info.midStage = {
-						width: info.stage.width / 2,
-						height: info.stage.height / 2
-					};
-
-					info.nudge = {
-						width: info.midStage.width + (info.stage.width * 0.05),
-						height: info.midStage.height + (info.stage.height * 0.05)
-					};
-
-					info.zValues = {
-						min: data.minZ,
-						max: data.maxZ,
-						diff: data.maxZ - data.minZ
-					};
-
-					info.opacity = {
-						min: data.minOpacity,
-						max: data.maxOpacity,
-						diff: data.maxOpacity - data.minOpacity
-					};
-
-					info.scale = {
-						min: data.minScale,
-						max: data.maxScale,
-						diff: data.maxScale - data.minScale
-					};
-
+					    info = methods.getInfo.apply(self);
 
 					// update child positions
 					self.children(data.childSelector)
@@ -511,32 +677,69 @@
 			    child = $(childElement),
 			    data = child.data("roundabout"),
 			    out = [],
-			    rad = methods.degToRad.apply(null, [(360.0 - data.degrees) + info.bearing]);
+			    rad = methods.degToRad.apply(null, [(360.0 - data.degrees) + info.bearing]),
+			    currentNumber,
+			    currentClassNumber,
+			    parentData = this.data("roundabout");
 
-			callback = callback || function() {};
+			if (parentData.supportCSSAnimation) {
+				if (data.isFirstReposition) {
+					data.isFirstReposition = false;
+				} else {
+					if (!data.isFirstAnimation) {
+						child.removeClass(function() { 
+							var toReturn = '',
+							classes = this.className.split(' ');
 
-			// adjust radians to be between 0 and Math.PI * 2
-			rad = methods.normalizeRad.apply(null, [rad]);
+							for(var i = 0; i < classes.length; i++ ) {
+								if( /([positionNext]|[position])+\d+/g.test( classes[i] ) ) { 
+									toReturn += classes[i] +' ';
+									currentNumber = parseInt(classes[i].match(/\d+/));
+								}
+								
+							}
+							return toReturn ; 
+						});
+					} else {
+						child.removeAttr('style');
+						data.isFirstAnimation = false;
+						currentNumber = childPos;
+					}
 
-			// get factors from shape
-			factors = info.shape(rad, info.focusBearingRadian, info.tilt);
+					if (data.showPrev) {
+						currentClassNumber = currentNumber + 1;
 
-			// correct
-			factors.scale = (factors.scale > 1) ? 1 : factors.scale;
-			factors.adjustedScale = (info.scale.min + (info.scale.diff * factors.scale)).toFixed(4);
-			factors.width = (factors.adjustedScale * data.startWidth).toFixed(4);
-			factors.height = (factors.adjustedScale * data.startHeight).toFixed(4);
+						if (currentClassNumber > parentData.childrenMaxCount) {
+							currentClassNumber = 0;
+						}
 
-			if (this.data("roundabout").supportCSSAnimation) {
-				child
-					.css({
-						transform: "scale(" + factors.adjustedScale + "," + factors.adjustedScale + ")",
-						left: ((factors.x * info.midStage.width + info.nudge.width) - factors.width / 2.0/factors.adjustedScale).toFixed(0) + "px",
-						top: ((factors.y * info.midStage.height + info.nudge.height) - factors.height / 2.0/factors.adjustedScale).toFixed(0) + "px",
-						opacity: (info.opacity.min + (info.opacity.diff * factors.scale)).toFixed(2),
-						zIndex: Math.round(info.zValues.min + (info.zValues.diff * factors.z))
-					});
+						child.addClass('position'+currentClassNumber);
+						data.showPrev = false;
+					} else {
+						currentClassNumber = currentNumber-1;
+
+						if (currentClassNumber == -1) {
+							currentClassNumber = parentData.childrenMaxCount;
+						}
+
+						child.addClass('positionNext'+currentClassNumber);
+					}
+				}
 			} else {
+				callback = callback || function() {};
+
+				// adjust radians to be between 0 and Math.PI * 2
+				rad = methods.normalizeRad.apply(null, [rad]);
+
+				// get factors from shape
+				factors = info.shape(rad, info.focusBearingRadian, info.tilt);
+
+				// correct
+				factors.scale = (factors.scale > 1) ? 1 : factors.scale;
+				factors.adjustedScale = (info.scale.min + (info.scale.diff * factors.scale)).toFixed(4);
+				factors.width = (factors.adjustedScale * data.startWidth).toFixed(4);
+				factors.height = (factors.adjustedScale * data.startHeight).toFixed(4);
+
 				child
 					.css({
 						left: ((factors.x * info.midStage.width + info.nudge.width) - factors.width / 2.0).toFixed(0) + "px",
@@ -547,9 +750,9 @@
 						zIndex: Math.round(info.zValues.min + (info.zValues.diff * factors.z)),
 						fontSize: (factors.adjustedScale * data.startFontSize).toFixed(1) + "px"
 					});
-			}
 
-			data.currentScale = factors.adjustedScale;
+				data.currentScale = factors.adjustedScale;
+			}
 
 			// for debugging purposes
 			if (self.data("roundabout").debug) {
@@ -723,10 +926,10 @@
 					// update the timer
 					timer = now - passedData.timerStart;
 
-					if (data.skipNextAnimation == SKIP_CURRENT_ANIMATION && data.supportCSSAnimation) {
-						data.skipNextAnimation = NOT_SKIP_ANIMATION;
+					if (data.skipNextAnimation == SKIP_CURRENT && data.supportCSSAnimation) {
+						data.skipNextAnimation = DONT_SKIP;
 						return;
-					} else if (data.skipNextAnimation == SKIP_NEXT_ANIMATION && data.supportCSSAnimation) {
+					} else if (data.skipNextAnimation == SKIP_NEXT && data.supportCSSAnimation) {
 						data.skipNextAnimation = data.skipNextAnimation + 1;
 					}
 
@@ -938,6 +1141,7 @@
 				duration = null;
 			}
 
+
 			return this
 				.each(function() {
 					var delta = $(this).data("roundabout").bearing + degrees;
@@ -982,7 +1186,7 @@
 						data = self.parent().data('roundabout');
 
 					if (data.supportCSSAnimation) {
-						data.skipNextAnimation = SKIP_NEXT_ANIMATION;
+						data.skipNextAnimation = SKIP_NEXT;
 					}
 
 					self.data('roundabout').stopAnimation = true;
@@ -1179,6 +1383,20 @@
 		// converts degrees to radians
 		degToRad: function(degrees) {
 			return methods.normalize.apply(null, [degrees]) * Math.PI / 180.0;
+		},
+
+		objToString: function(obj) {
+		    var str = '{';
+
+			for (var p in obj) {
+				if (obj.hasOwnProperty(p)) {
+					str = str+ p + ':' + obj[p] + ';';
+				}
+			}
+
+			str = str + "}";
+
+			return str;
 		},
 
 
