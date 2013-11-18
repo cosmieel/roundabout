@@ -123,7 +123,7 @@
 		lastAnimationStep: false,
 		skipNextAnimation: 0,
 		childrenMaxCount: 0,
-		showPrev: false,
+		showPrev: false
 	};
 
 	methods = {
@@ -136,7 +136,8 @@
 		init: function(options, callback, relayout) {
 			var settings,
 				supportCSSAnimation = false,
-				now = (new Date()).getTime();
+				now = (new Date()).getTime(),
+				animationPrefix = (Math.random() * 100).toFixed(0);
 
 			options   = (typeof options === "object") ? options : {};
 			callback  = ($.isFunction(callback)) ? callback : function() {};
@@ -190,7 +191,9 @@
 									dragBearing: startBearing,
 									period: period,
 									supportCSSAnimation: supportCSSAnimation,
-									showPrev: false
+									showPrev: false,
+									animationPrefix: animationPrefix
+
 								}
 							)
 						);
@@ -220,7 +223,7 @@
 									.bind("click.roundabout", function() {
 										var degrees = methods.getPlacement.apply(self, [i]);
 
-										if (parseInt($(this).css('left')) < 0 && self.data("roundabout").supportCSSAnimation) {
+										if (parseInt($(this).css('left'), 10) < 0 && self.data("roundabout").supportCSSAnimation) {
 											self.children(settings.childSelector).each(function() {
 												$(this).data("roundabout").showPrev = true;
 											});
@@ -472,7 +475,8 @@
 				children = $(this).children(),
 				duration = $(this).data("roundabout").duration / 1000,
 				prevClassNumber = 1,
-				childrenMaxCount =$(this).data("roundabout").childrenMaxCount,
+				childrenMaxCount = $(this).data("roundabout").childrenMaxCount,
+				animationPrefix = $(this).data("roundabout").animationPrefix,
 				nextClassNumber = childrenMaxCount,
 				lastAnimationState = 0,
 				prevAnimationState;
@@ -481,7 +485,7 @@
 				currentPersents = 0;
 				$(children[i]).css(keyframes[lastAnimationState]);
 
-				styles = styles + "@" + prefix + "keyframes roundaboutAnimation" + i + "{";
+				styles = styles + "@" + prefix + "keyframes roundaboutAnimation" + animationPrefix + "_" + i + "{";
 
 				for (j; j < (i + 1) * (KEYFRAMES_STATES + 2); j++) {
 					styles = styles + currentPersents.toFixed(0) + "%" + methods.objToString(keyframes[lastAnimationState]);
@@ -495,7 +499,7 @@
 				lastAnimationState--;
 				styles = styles + "}";
 
-				styles = styles + ".position" + prevClassNumber + "{" + prefix + "animation:roundaboutAnimation" + i +
+				styles = styles + ".position" + animationPrefix + "_" + prevClassNumber + "{" + prefix + "animation:roundaboutAnimation" + animationPrefix + "_" + i +
 						 " " + duration + "s;" + prefix + "animation-timing-function:linear;" +
 						 "width:480px;" + prefix + "transform:"+keyframes[lastAnimationState][prefix + "transform"]+
 						 ";height:320px;top:"+keyframes[lastAnimationState].top+
@@ -522,7 +526,7 @@
 					animationNumber = 0;
 				}
 
-				styles = styles + "@" + prefix + "keyframes roundaboutAnimationNext" + animationNumber + "{";
+				styles = styles + "@" + prefix + "keyframes roundaboutAnimationNext" + animationPrefix + "_" + animationNumber + "{";
 
 				animationNumber++;
 
@@ -535,7 +539,7 @@
 					} else {
 						lastAnimationState--;
 					}
-				};
+				}
 
 				styles = styles + "}";
 
@@ -553,8 +557,8 @@
 
 				prevAnimationState = lastAnimationState - KEYFRAMES_STATES;
 
-				styles = styles + ".positionNext" + nextClassNumber + "{" + prefix + 
-						 "animation:roundaboutAnimationNext" + animationNumber + " "+duration+"s;" + 
+				styles = styles + ".positionNext" + animationPrefix + "_" + nextClassNumber + "{" + prefix + 
+						 "animation:roundaboutAnimationNext" + animationPrefix + "_" + animationNumber + " " + duration+"s;" + 
 						 prefix + "animation-timing-function:linear;width:480px;" + 
 						 prefix + "transform:"+keyframes[prevAnimationState][prefix + "transform"]+
 						 ";height:320px;top:"+keyframes[prevAnimationState].top+";left:"+keyframes[prevAnimationState].left+
@@ -565,7 +569,7 @@
 				
 			}
 
-			$('head').append($('<style>', {
+			$(this).append($('<style>', {
 				text: styles
 			}));
 
@@ -692,9 +696,9 @@
 							classes = this.className.split(' ');
 
 							for(var i = 0; i < classes.length; i++ ) {
-								if( /([positionNext]|[position])+\d+/g.test( classes[i] ) ) { 
+								if( /_(\d+)/g.test( classes[i] ) ) { 
 									toReturn += classes[i] +' ';
-									currentNumber = parseInt(classes[i].match(/\d+/));
+									currentNumber = parseInt(classes[i].match(/(\d+)([^\w\d]+|$)/g), 10);
 								}
 								
 							}
@@ -713,7 +717,7 @@
 							currentClassNumber = 0;
 						}
 
-						child.addClass('position'+currentClassNumber);
+						child.addClass('position' + parentData.animationPrefix + "_" + currentClassNumber);
 						data.showPrev = false;
 					} else {
 						currentClassNumber = currentNumber-1;
@@ -722,7 +726,7 @@
 							currentClassNumber = parentData.childrenMaxCount;
 						}
 
-						child.addClass('positionNext'+currentClassNumber);
+						child.addClass('positionNext' + parentData.animationPrefix + "_" + currentClassNumber);
 					}
 				}
 			} else {
@@ -1353,6 +1357,7 @@
 		// relayoutChildren
 		// lays out children again with new contextual information
 		relayoutChildren: function() {
+			$(this).find('style').remove();
 			return this
 				.each(function() {
 					var self = $(this),
