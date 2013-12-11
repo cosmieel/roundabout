@@ -116,7 +116,8 @@
 		triggerBlurEvents: true,
 		responsive: false,
 		useCssAnimation: false,
-		prefix: ""
+		prefix: "",
+		btnsPager: null
 	};
 
 	internalData = {
@@ -234,21 +235,7 @@
 							.each(function(i) {
 								$(this)
 									.bind("click.roundabout", function() {
-										var degrees = methods.getPlacement.apply(self, [i]);
-
-										if (parseInt($(this).css("left"), 10) < 0 && self.data("roundabout").supportCSSAnimation) {
-											self.children(settings.childSelector).each(function() {
-												$(this).data("roundabout").showPrev = true;
-											});
-										}
-
-										if (!methods.isInFocus.apply(self, [degrees])) {
-											methods.stopAnimation.apply($(this));
-											if (!self.data("roundabout").animating) {
-												methods.animateBearingToFocus.apply(self, [degrees, self.data("roundabout").clickToFocusCallback]);
-											}
-											return false;
-										}
+										methods.showListElement.apply(self, [i]);
 									});
 							});
 					}
@@ -298,6 +285,22 @@
 								methods.stopAutoplay.apply(self);
 								return false;
 							});
+					}
+
+					if (settings.btnsPager) {
+						var pager = self
+										.parent()
+										.find(settings.btnsPager);
+
+						if (pager.size() === 0) {
+							console.error("Can't find pager elements.");
+						} else {
+							pager.bind("click.roundabout", function() {
+								var index = $(this).index();
+								methods.showElementByPager.apply(self, [index]);
+								return false;
+							});
+						}
 					}
 
 					// autoplay pause on hover
@@ -1205,6 +1208,76 @@
 						methods.animateToDelta.apply($(this), [delta, duration, easing, callback]);
 					}
 				});
+		},
+
+
+		showElementByPager: function(index) {
+			var self = $(this);
+
+			if ($(this).data("roundabout").useCssAnimation) {
+				var currentNum = index,
+					prevNum = self.find('.roundabout-in-focus').index(),
+					list = self.children($(this).data("roundabout").childSelector),
+					delta = currentNum - prevNum,
+					maxDelta = $(this).data("roundabout").childrenMaxCount - 1,
+					functionBearing,
+					intervalId,
+					duration = $(this).data("roundabout").duration;
+
+				if ((delta > 1) && (delta <= maxDelta)) {
+					functionBearing = function() {
+						if (prevNum === currentNum) {
+							clearInterval(intervalId);
+						} else {
+							methods.showListElement.apply(self, [++prevNum]);
+						}
+					}
+					functionBearing();
+					intervalId = setInterval(functionBearing, duration);
+
+				} else if ((delta < -1) && (delta >= -maxDelta)) {
+					functionBearing = function() {
+						if (prevNum === currentNum) {
+							clearInterval(intervalId);
+						} else {
+							methods.showListElement.apply(self, [--prevNum]);
+						}
+					}
+					functionBearing();
+					intervalId = setInterval(functionBearing, duration);
+
+				} else {
+					methods.showListElement.apply(self, [currentNum]);
+				}
+			} else {
+				methods.showListElement.apply(self, [index]);
+			}
+
+		},
+
+
+		showListElement: function(index) {
+			var self = this,
+				degrees = methods.getPlacement.apply(self, [index]),
+				child = self.children(self.data("roundabout")).eq(index),
+				prevIndex = self.find(".roundabout-in-focus").index(),
+				delta = prevIndex - index,
+				supportCSSAnimation = self.data("roundabout").supportCSSAnimation,
+				childrenCount = self.data("roundabout").childrenMaxCount;
+
+			if ((delta > 0 || delta === -childrenCount) && supportCSSAnimation && delta !== childrenCount) {
+				self.children(self.data("roundabout")).each(function() {
+					$(this).data("roundabout").showPrev = true;
+				});
+			}
+
+			if (!methods.isInFocus.apply(self, [degrees])) {
+				methods.stopAnimation.apply(child);
+				if (!self.data("roundabout").animating) {
+					methods.animateBearingToFocus.apply(self, [degrees, self.data("roundabout").clickToFocusCallback]);
+				}
+				return false;
+			}
 		},
 
 
