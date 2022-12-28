@@ -1,0 +1,37 @@
+{
+  "name": "@regru/roundabout",
+  "version": "2.4.2",
+  "title": "Roundabout",
+  "description": "Easily convert unordered lists & other nested HTML structures into entertaining, interactive, turntable-like areas.",
+  "main": "jquery.roundabout.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fredleblanc/roundabout.git"
+  },
+  "dependencies": {
+    "jquery": ">=1.2.0"
+  },
+  "keywords": [
+    "roundabout",
+    "turntable",
+    "lazy",
+    "susan",
+    "carousel",
+    "3d"
+  ],
+  "author": {
+    "name": "Fred LeBlanc",
+    "email": "fred@fredhq.com",
+    "url": "http://fredhq.com"
+  },
+  "licenses": [
+    {
+      "type": "BSD-3-Clause",
+      "url": "http://opensource.org/licenses/BSD-3-Clause"
+    }
+  ],
+  "bugs": {
+    "url": "https://github.com/fredleblanc/roundabout/issues"
+  },
+  "homepage": "https://github.com/fredleblanc/roundabout#readme"
+}
